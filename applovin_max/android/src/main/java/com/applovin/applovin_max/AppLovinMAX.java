@@ -63,10 +63,19 @@ public class AppLovinMAX
 {
     private static final String SDK_TAG = "AppLovinSdk";
     public static final  String TAG     = "AppLovinMAX";
+    private static final String PLUGIN_VERSION = "4.0.0";
 
     private static final String USER_GEOGRAPHY_GDPR    = "G";
     private static final String USER_GEOGRAPHY_OTHER   = "O";
     private static final String USER_GEOGRAPHY_UNKNOWN = "U";
+
+    private static final Map<String, String> ALCompatibleNativeSdkVersions = new HashMap<>();
+
+    static
+    {
+        ALCompatibleNativeSdkVersions.put( "4.0.1", "13.0.0" );
+        ALCompatibleNativeSdkVersions.put( "4.0.0", "13.0.0" );
+    }
 
     public static AppLovinMAX instance;
 
@@ -110,6 +119,14 @@ public class AppLovinMAX
     @Override
     public void onAttachedToEngine(@NonNull final FlutterPluginBinding binding)
     {
+        // Check that plugin version is compatible with native SDK version
+        String minCompatibleNativeSdkVersion = ALCompatibleNativeSdkVersions.get( PLUGIN_VERSION );
+        boolean isCompatible = isInclusiveVersion( AppLovinSdk.VERSION, minCompatibleNativeSdkVersion, null );
+        if ( !isCompatible )
+        {
+            throw new RuntimeException( "Incompatible native SDK version " + AppLovinSdk.VERSION + " found for plugin " + PLUGIN_VERSION );
+        }
+
         // KNOWN ISSUE: onAttachedToEngine will be call twice, which may be caused by using
         // firebase_messaging plugin. See https://github.com/flutter/flutter/issues/97840
         //
@@ -236,16 +253,6 @@ public class AppLovinMAX
     public void hasUserConsent(final Result result)
     {
         result.success( AppLovinPrivacySettings.hasUserConsent( applicationContext ) );
-    }
-
-    public void setIsAgeRestrictedUser(boolean isAgeRestrictedUser)
-    {
-        AppLovinPrivacySettings.setIsAgeRestrictedUser( isAgeRestrictedUser, applicationContext );
-    }
-
-    public void isAgeRestrictedUser(final Result result)
-    {
-        result.success( AppLovinPrivacySettings.isAgeRestrictedUser( applicationContext ) );
     }
 
     public void setDoNotSell(final boolean doNotSell)
@@ -834,18 +841,6 @@ public class AppLovinMAX
         }
 
         fireCallback( name, getAdInfo( ad ) );
-    }
-
-    @Override
-    public void onRewardedVideoCompleted(@NonNull final MaxAd ad)
-    {
-        // This event is not forwarded
-    }
-
-    @Override
-    public void onRewardedVideoStarted(@NonNull final MaxAd ad)
-    {
-        // This event is not forwarded
     }
 
     @Override
@@ -1609,17 +1604,6 @@ public class AppLovinMAX
         {
             hasUserConsent( result );
         }
-        else if ( "setIsAgeRestrictedUser".equals( call.method ) )
-        {
-            boolean isAgeRestrictedUser = call.argument( "value" );
-            setIsAgeRestrictedUser( isAgeRestrictedUser );
-
-            result.success( null );
-        }
-        else if ( "isAgeRestrictedUser".equals( call.method ) )
-        {
-            isAgeRestrictedUser( result );
-        }
         else if ( "setDoNotSell".equals( call.method ) )
         {
             boolean isDoNotSell = call.argument( "value" );
@@ -2073,5 +2057,55 @@ public class AppLovinMAX
     private Activity getCurrentActivity()
     {
         return ( lastActivityPluginBinding != null ) ? lastActivityPluginBinding.getActivity() : null;
+    }
+
+    //
+    // Version Utils
+    //
+
+    private boolean isInclusiveVersion(final String version, @Nullable final String minVersion, @Nullable final String maxVersion)
+    {
+        if ( TextUtils.isEmpty( version ) ) return true;
+
+        int versionCode = toVersionCode( version );
+
+        // if version is less than the minimum version
+        if ( !TextUtils.isEmpty( minVersion ) )
+        {
+            int minVersionCode = toVersionCode( minVersion );
+
+            if ( versionCode < minVersionCode ) return false;
+        }
+
+        // if version is greater than the maximum version
+        if ( !TextUtils.isEmpty( maxVersion ) )
+        {
+            int maxVersionCode = toVersionCode( maxVersion );
+
+            if ( versionCode > maxVersionCode ) return false;
+        }
+
+        return true;
+    }
+
+    private static int toVersionCode(String versionString)
+    {
+        String[] versionNums = versionString.split( "\\." );
+
+        int versionCode = 0;
+        for ( String num : versionNums )
+        {
+            // Each number gets two digits in the version code.
+            if ( num.length() > 2 )
+            {
+                w( "Version number components cannot be longer than two digits -> " + versionString );
+                return versionCode;
+            }
+
+            versionCode *= 100;
+            versionCode += Integer.parseInt( num );
+        }
+
+        return versionCode;
     }
 }
