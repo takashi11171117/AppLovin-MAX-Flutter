@@ -1,0 +1,29 @@
+PODS:
+  - applovin_max (4.3.1):
+    - AppLovinSDK (= 13.1.0)
+    - Flutter
+  - AppLovinSDK (13.1.0)
+  - Flutter (1.0.0)
+
+DEPENDENCIES:
+  - applovin_max (from `.symlinks/plugins/applovin_max/ios`)
+  - Flutter (from `Flutter`)
+
+SPEC REPOS:
+  trunk:
+    - AppLovinSDK
+
+EXTERNAL SOURCES:
+  applovin_max:
+    :path: ".symlinks/plugins/applovin_max/ios"
+  Flutter:
+    :path: Flutter
+
+SPEC CHECKSUMS:
+  applovin_max: 8564892edf7676734be8439afe6de16c6917c97a
+  AppLovinSDK: 539a0178d8bef4d68b2551a93526e0c1bba06cb2
+  Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
+
+PODFILE CHECKSUM: f6d4310a5f7d7eaefabe9a19f7ba5dcdcecc57fb
+
+COCOAPODS: 1.16.2

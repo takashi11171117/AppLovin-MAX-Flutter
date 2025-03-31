@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math';
+import 'dart:ui';
 
 import 'package:applovin_max/applovin_max.dart';
 import 'package:flutter/material.dart';
@@ -50,6 +51,12 @@ var _isWidgetBannerShowing = false;
 var _isProgrammaticMRecCreated = false;
 var _isProgrammaticMRecShowing = false;
 var _isWidgetMRecShowing = false;
+AdViewId? _preloadedBannerId;
+AdViewId? _preloadedMRecId;
+AdViewId? _preloadedBanner2Id;
+AdViewId? _preloadedMRec2Id;
+double? _bannerWidth;
+double? _bannerHeight;
 
 var _statusText = '';
 
@@ -98,14 +105,6 @@ class _MyAppState extends State<MyApp> {
       onAdLoadFailedCallback: (adUnitId, error) {
         _interstitialLoadState = AdLoadState.notLoaded;
 
-        if (error.code == ErrorCode.fullscreenAdAlreadyLoading) {
-          logStatus('Interstitial ad failed: ad is already loading');
-          return;
-        } else if (error.code == ErrorCode.fullscreenAdLoadWhileShowing) {
-          logStatus('Interstitial ad failed: ad is currently being shown for this ad unit');
-          return;
-        }
-
         // Interstitial ad failed to load
         // We recommend retrying with exponentially higher delays up to a maximum delay (in this case 64 seconds)
         _interstitialRetryAttempt = _interstitialRetryAttempt + 1;
@@ -153,14 +152,6 @@ class _MyAppState extends State<MyApp> {
       _rewardedAdRetryAttempt = 0;
     }, onAdLoadFailedCallback: (adUnitId, error) {
       _rewardedAdLoadState = AdLoadState.notLoaded;
-
-      if (error.code == ErrorCode.fullscreenAdAlreadyLoading) {
-        logStatus('Rewarded ad failed: ad is already loading');
-        return;
-      } else if (error.code == ErrorCode.fullscreenAdLoadWhileShowing) {
-        logStatus('Rewarded ad failed: ad is currently being shown for this ad unit');
-        return;
-      }
 
       // Rewarded ad failed to load
       // We recommend retrying with exponentially higher delays up to a maximum delay (in this case 64 seconds)
@@ -229,9 +220,9 @@ class _MyAppState extends State<MyApp> {
   void preloadAdViewAd() {
     AppLovinMAX.setWidgetAdViewAdListener(WidgetAdViewAdListener(onAdLoadedCallback: (ad) {
       if (ad.adUnitId == _bannerAdUnitId) {
-        print('Banner ad preloaded from ${ad.networkName}');
+        print('Banner ad (${ad.adViewId}) preloaded from ${ad.networkName}');
       } else if (ad.adUnitId == _mrecAdUnitId) {
-        print('MREC ad preloaded from ${ad.networkName}');
+        print('MREC ad (${ad.adViewId}) preloaded from ${ad.networkName}');
       } else {
         print('Error: unexpected ad preloaded for ${ad.adUnitId}');
       }
@@ -245,8 +236,9 @@ class _MyAppState extends State<MyApp> {
       }
     }));
 
-    AppLovinMAX.preloadWidgetAdView(_bannerAdUnitId, AdFormat.banner).then((_) {
-      print('Started preloading a banner ad for $_bannerAdUnitId');
+    AppLovinMAX.preloadWidgetAdView(_bannerAdUnitId, AdFormat.banner).then((adViewId) {
+      _preloadedBannerId = adViewId;
+      print('Started preloading a banner ad ($adViewId) for $_bannerAdUnitId');
     }).catchError((e) {
       print('Error: failed to preload a banner ad for $_bannerAdUnitId: $e');
     });
@@ -258,8 +250,23 @@ class _MyAppState extends State<MyApp> {
       customData: 'customData',
       extraParameters: {'key1': 'value1', 'key2': 'value2'},
       localExtraParameters: {'key1': 100, 'key2': 200},
-    ).then((_) {
-      print('Started preloading a MREC ad for $_mrecAdUnitId');
+    ).then((adViewId) {
+      _preloadedMRecId = adViewId;
+      print('Started preloading a MREC ad ($adViewId) for $_mrecAdUnitId');
+    }).catchError((e) {
+      print('Error: failed to preload a MREC ad for $_mrecAdUnitId: $e');
+    });
+
+    AppLovinMAX.preloadWidgetAdView(_bannerAdUnitId, AdFormat.banner).then((adViewId) {
+      _preloadedBanner2Id = adViewId;
+      print('Started preloading a banner ad ($adViewId) for $_bannerAdUnitId');
+    }).catchError((e) {
+      print('Error: failed to preload a banner ad for $_bannerAdUnitId: $e');
+    });
+
+    AppLovinMAX.preloadWidgetAdView(_mrecAdUnitId, AdFormat.mrec).then((adViewId) {
+      _preloadedMRec2Id = adViewId;
+      print('Started preloading a MREC ad ($adViewId) for $_mrecAdUnitId');
     }).catchError((e) {
       print('Error: failed to preload a MREC ad for $_mrecAdUnitId: $e');
     });
@@ -344,190 +351,203 @@ class _MyAppState extends State<MyApp> {
               textAlign: TextAlign.center,
             ),
           ),
-          Container(
-            margin: const EdgeInsets.only(left: 40, right: 40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: _isInitialized
-                      ? () {
-                          AppLovinMAX.showMediationDebugger();
+          Column(
+            //crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: _isInitialized
+                    ? () {
+                        AppLovinMAX.showMediationDebugger();
+                      }
+                    : null,
+                text: 'Mediation Debugger',
+              ),
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: (_isInitialized && _interstitialLoadState != AdLoadState.loading)
+                    ? () async {
+                        bool isReady = (await AppLovinMAX.isInterstitialReady(_interstitialAdUnitId))!;
+                        if (isReady) {
+                          AppLovinMAX.showInterstitial(_interstitialAdUnitId);
+                        } else {
+                          logStatus('Loading interstitial ad...');
+                          _interstitialLoadState = AdLoadState.loading;
+                          AppLovinMAX.loadInterstitial(_interstitialAdUnitId);
                         }
-                      : null,
-                  text: 'Mediation Debugger',
-                ),
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: (_isInitialized && _interstitialLoadState != AdLoadState.loading)
-                      ? () async {
-                          bool isReady = (await AppLovinMAX.isInterstitialReady(_interstitialAdUnitId))!;
-                          if (isReady) {
-                            AppLovinMAX.showInterstitial(_interstitialAdUnitId);
-                          } else {
-                            logStatus('Loading interstitial ad...');
-                            _interstitialLoadState = AdLoadState.loading;
-                            AppLovinMAX.loadInterstitial(_interstitialAdUnitId);
-                          }
+                      }
+                    : null,
+                text: getInterstitialButtonTitle(),
+              ),
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: (_isInitialized && _rewardedAdLoadState != AdLoadState.loading)
+                    ? () async {
+                        bool isReady = (await AppLovinMAX.isRewardedAdReady(_rewardedAdUnitId))!;
+                        if (isReady) {
+                          AppLovinMAX.showRewardedAd(_rewardedAdUnitId);
+                        } else {
+                          logStatus('Loading rewarded ad...');
+                          _rewardedAdLoadState = AdLoadState.loading;
+                          AppLovinMAX.loadRewardedAd(_rewardedAdUnitId);
                         }
-                      : null,
-                  text: getInterstitialButtonTitle(),
-                ),
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: (_isInitialized && _rewardedAdLoadState != AdLoadState.loading)
-                      ? () async {
-                          bool isReady = (await AppLovinMAX.isRewardedAdReady(_rewardedAdUnitId))!;
-                          if (isReady) {
-                            AppLovinMAX.showRewardedAd(_rewardedAdUnitId);
-                          } else {
-                            logStatus('Loading rewarded ad...');
-                            _rewardedAdLoadState = AdLoadState.loading;
-                            AppLovinMAX.loadRewardedAd(_rewardedAdUnitId);
-                          }
-                        }
-                      : null,
-                  text: getRewardedButtonTitle(),
-                ),
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: (_isInitialized && !_isWidgetBannerShowing)
-                      ? () async {
-                          if (_isProgrammaticBannerShowing) {
-                            AppLovinMAX.hideBanner(_bannerAdUnitId);
-                          } else {
-                            if (!_isProgrammaticBannerCreated) {
-                              //
-                              // Programmatic banner creation - banners are automatically sized to 320x50 on phones and 728x90 on tablets
-                              //
-                              AppLovinMAX.createBanner(_bannerAdUnitId, AdViewPosition.bottomCenter);
+                      }
+                    : null,
+                text: getRewardedButtonTitle(),
+              ),
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: (_isInitialized && !_isWidgetBannerShowing)
+                    ? () async {
+                        if (_isProgrammaticBannerShowing) {
+                          AppLovinMAX.hideBanner(_bannerAdUnitId);
+                        } else {
+                          if (!_isProgrammaticBannerCreated) {
+                            //
+                            // Programmatic banner creation - banners are automatically sized to 320x50 on phones and 728x90 on tablets
+                            //
+                            AppLovinMAX.createBanner(_bannerAdUnitId, AdViewPosition.bottomCenter);
 
-                              // Set banner background color to black - PLEASE USE HEX STRINGS ONLY
-                              AppLovinMAX.setBannerBackgroundColor(_bannerAdUnitId, '#000000');
+                            // Set banner background color to black - PLEASE USE HEX STRINGS ONLY
+                            AppLovinMAX.setBannerBackgroundColor(_bannerAdUnitId, '#000000');
 
-                              _isProgrammaticBannerCreated = true;
-                            }
-
-                            AppLovinMAX.showBanner(_bannerAdUnitId);
+                            _isProgrammaticBannerCreated = true;
                           }
 
-                          setState(() {
-                            _isProgrammaticBannerShowing = !_isProgrammaticBannerShowing;
-                          });
+                          AppLovinMAX.showBanner(_bannerAdUnitId);
                         }
-                      : null,
-                  text: getProgrammaticBannerButtonTitle(),
-                ),
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: (_isInitialized && !_isProgrammaticBannerShowing)
-                      ? () async {
-                          setState(() {
-                            _isWidgetBannerShowing = !_isWidgetBannerShowing;
-                          });
-                        }
-                      : null,
-                  text: getWidgetBannerButtonTitle(),
-                ),
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: (_isInitialized && !_isWidgetMRecShowing)
-                      ? () async {
-                          if (_isProgrammaticMRecShowing) {
-                            AppLovinMAX.hideMRec(_mrecAdUnitId);
-                          } else {
-                            if (!_isProgrammaticMRecCreated) {
-                              AppLovinMAX.createMRec(_mrecAdUnitId, AdViewPosition.bottomCenter);
 
-                              _isProgrammaticMRecCreated = true;
-                            }
+                        setState(() {
+                          _isProgrammaticBannerShowing = !_isProgrammaticBannerShowing;
+                        });
+                      }
+                    : null,
+                text: getProgrammaticBannerButtonTitle(),
+              ),
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: (_isInitialized && !_isProgrammaticBannerShowing)
+                    ? () async {
+                        _bannerWidth = null;
+                        _bannerHeight = null;
+                        setState(() {
+                          _isWidgetBannerShowing = !_isWidgetBannerShowing;
+                        });
+                      }
+                    : null,
+                text: getWidgetBannerButtonTitle(),
+              ),
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: (_isInitialized && !_isWidgetMRecShowing)
+                    ? () async {
+                        if (_isProgrammaticMRecShowing) {
+                          AppLovinMAX.hideMRec(_mrecAdUnitId);
+                        } else {
+                          if (!_isProgrammaticMRecCreated) {
+                            AppLovinMAX.createMRec(_mrecAdUnitId, AdViewPosition.bottomCenter);
 
-                            AppLovinMAX.showMRec(_mrecAdUnitId);
+                            _isProgrammaticMRecCreated = true;
                           }
 
-                          setState(() {
-                            _isProgrammaticMRecShowing = !_isProgrammaticMRecShowing;
-                          });
+                          AppLovinMAX.showMRec(_mrecAdUnitId);
                         }
-                      : null,
-                  text: getProgrammaticMRecButtonTitle(),
-                ),
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: (_isInitialized && !_isProgrammaticMRecShowing)
-                      ? () async {
-                          setState(() {
-                            _isWidgetMRecShowing = !_isWidgetMRecShowing;
-                          });
-                        }
-                      : null,
-                  text: getWidgetMRecButtonTitle(),
-                ),
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: (_isInitialized)
-                      ? () async {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (context) => NativeAdView(adUnitId: _nativeAdUnitId)),
-                          );
-                        }
-                      : null,
-                  text: 'Show Native Ad',
-                ),
-                const SizedBox(height: 8),
-                AppButton(
-                  onPressed: (_isInitialized)
-                      ? () async {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (context) => ScrolledAdView(
-                                      bannerAdUnitId: _bannerAdUnitId,
-                                      mrecAdUnitId: _mrecAdUnitId,
-                                    )),
-                          );
-                        }
-                      : null,
-                  text: 'Show Scrolled Banner/MREC',
-                ),
-                if (_isWidgetBannerShowing)
-                  MaxAdView(
-                      adUnitId: _bannerAdUnitId,
-                      adFormat: AdFormat.banner,
-                      listener: AdViewAdListener(onAdLoadedCallback: (ad) {
-                        logStatus('Banner widget ad loaded from ${ad.networkName}');
-                      }, onAdLoadFailedCallback: (adUnitId, error) {
-                        logStatus('Banner widget ad failed to load with error code ${error.code} and message: ${error.message}');
-                      }, onAdClickedCallback: (ad) {
-                        logStatus('Banner widget ad clicked');
-                      }, onAdExpandedCallback: (ad) {
-                        logStatus('Banner widget ad expanded');
-                      }, onAdCollapsedCallback: (ad) {
-                        logStatus('Banner widget ad collapsed');
-                      }, onAdRevenuePaidCallback: (ad) {
-                        logStatus('Banner widget ad revenue paid: ${ad.revenue}');
-                      })),
-                if (_isWidgetMRecShowing)
-                  MaxAdView(
-                      adUnitId: _mrecAdUnitId,
-                      adFormat: AdFormat.mrec,
-                      listener: AdViewAdListener(onAdLoadedCallback: (ad) {
-                        logStatus('MREC widget ad loaded from ${ad.networkName}');
-                      }, onAdLoadFailedCallback: (adUnitId, error) {
-                        logStatus('MREC widget ad failed to load with error code ${error.code} and message: ${error.message}');
-                      }, onAdClickedCallback: (ad) {
-                        logStatus('MREC widget ad clicked');
-                      }, onAdExpandedCallback: (ad) {
-                        logStatus('MREC widget ad expanded');
-                      }, onAdCollapsedCallback: (ad) {
-                        logStatus('MREC widget ad collapsed');
-                      }, onAdRevenuePaidCallback: (ad) {
-                        logStatus('MREC widget ad revenue paid: ${ad.revenue}');
-                      })),
-              ],
-            ),
+
+                        setState(() {
+                          _isProgrammaticMRecShowing = !_isProgrammaticMRecShowing;
+                        });
+                      }
+                    : null,
+                text: getProgrammaticMRecButtonTitle(),
+              ),
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: (_isInitialized && !_isProgrammaticMRecShowing)
+                    ? () async {
+                        setState(() {
+                          _isWidgetMRecShowing = !_isWidgetMRecShowing;
+                        });
+                      }
+                    : null,
+                text: getWidgetMRecButtonTitle(),
+              ),
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: (_isInitialized)
+                    ? () async {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => NativeAdView(adUnitId: _nativeAdUnitId)),
+                        );
+                      }
+                    : null,
+                text: 'Show Native Ad',
+              ),
+              const SizedBox(height: 8),
+              AppButton(
+                onPressed: (_isInitialized)
+                    ? () async {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => ScrolledAdView(
+                                  bannerAdUnitId: _bannerAdUnitId,
+                                  mrecAdUnitId: _mrecAdUnitId,
+                                  preloadedBannerId: _preloadedBannerId,
+                                  preloadedMRecId: _preloadedMRecId,
+                                  preloadedBanner2Id: _preloadedBanner2Id,
+                                  preloadedMRec2Id: _preloadedMRec2Id)),
+                        );
+                      }
+                    : null,
+                text: 'Show Scrolled Banner/MREC',
+              ),
+              const SizedBox(height: 8),
+              if (_isWidgetBannerShowing)
+                MaxAdView(
+                    adUnitId: _bannerAdUnitId,
+                    adFormat: AdFormat.banner,
+                    adViewId: _preloadedBannerId,
+                    width: _bannerWidth,
+                    height: _bannerHeight,
+                    listener: AdViewAdListener(onAdLoadedCallback: (ad) {
+                      logStatus('Banner widget ad (${ad.adViewId}) loaded from ${ad.networkName}');
+                      if (ad.size != null) {
+                        setState(() {
+                          _bannerWidth = ad.size?.width;
+                          _bannerHeight = ad.size?.height;
+                        });
+                      }
+                    }, onAdLoadFailedCallback: (adUnitId, error) {
+                      logStatus('Banner widget ad (${error.adViewId}) failed to load with error code ${error.code} and message: ${error.message}');
+                    }, onAdClickedCallback: (ad) {
+                      logStatus('Banner widget ad (${ad.adViewId}) clicked');
+                    }, onAdExpandedCallback: (ad) {
+                      logStatus('Banner widget ad (${ad.adViewId}) expanded');
+                    }, onAdCollapsedCallback: (ad) {
+                      logStatus('Banner widget ad collapsed');
+                    }, onAdRevenuePaidCallback: (ad) {
+                      logStatus('Banner widget ad (${ad.adViewId}) revenue paid: ${ad.revenue}');
+                    })),
+              if (_isWidgetMRecShowing)
+                MaxAdView(
+                    adUnitId: _mrecAdUnitId,
+                    adFormat: AdFormat.mrec,
+                    adViewId: _preloadedMRecId,
+                    listener: AdViewAdListener(onAdLoadedCallback: (ad) {
+                      logStatus('MREC widget ad (${ad.adViewId}) loaded from ${ad.networkName}');
+                    }, onAdLoadFailedCallback: (adUnitId, error) {
+                      logStatus('MREC widget ad (${error.adViewId}) failed to load with error code ${error.code} and message: ${error.message}');
+                    }, onAdClickedCallback: (ad) {
+                      logStatus('MREC widget ad (${ad.adViewId}) clicked');
+                    }, onAdExpandedCallback: (ad) {
+                      logStatus('MREC widget ad (${ad.adViewId}) expanded');
+                    }, onAdCollapsedCallback: (ad) {
+                      logStatus('MREC widget ad (${ad.adViewId}) collapsed');
+                    }, onAdRevenuePaidCallback: (ad) {
+                      logStatus('MREC widget ad (${ad.adViewId}) revenue paid: ${ad.revenue}');
+                    })),
+            ],
           ),
         ],
       ),
@@ -547,21 +567,24 @@ class AppButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 36, // Set button height
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.grey[200],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8), // Custom border radius
+    return Padding(
+      padding: const EdgeInsets.only(left: 40, right: 40),
+      child: SizedBox(
+        height: 36, // Set button height
+        child: ElevatedButton(
+          onPressed: onPressed,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.grey[200],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8), // Custom border radius
+            ),
           ),
-        ),
-        child: Text(
-          text,
-          style: const TextStyle(
-            fontSize: 18, // Set text font size to 18
-            color: Colors.black,
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 18, // Set text font size to 18
+              color: Colors.black,
+            ),
           ),
         ),
       ),

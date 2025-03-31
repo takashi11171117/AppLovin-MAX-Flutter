@@ -1,5 +1,26 @@
 ## Versions
 
+## 4.3.1
+* Fix CTA not clickable.
+* Remove deprecated `AppLovinMAX.setLocationCollectionEnabled()` API.
+## 4.3.0
+* Update `MaxAd` to include `adFormat`, `networkPlacement`, and `latencyMills`.
+* Depends on Android SDK v13.1.0 and iOS SDK v13.1.0.
+## 4.2.1
+* Update the example.
+## 4.2.0
+* Add support for adaptive banners. For more info, check out our [docs](https://developers.applovin.com/en/max/flutter/ad-formats/banner-and-mrec-ads#adaptive-banners).
+## 4.1.2
+* Fix preloaded banners and MRECs not resuming auto-refresh on iOS.
+## 4.1.1
+* Remove the mistakenly enabled adaptive banner from Android to prevent app-side errors.
+* Remove obsolete MAX Error Codes - `ErrorCode.fullscreenAdAlreadyLoading` and `ErrorCode.fullscreenAdLoadWhileShowing`.
+## 4.1.0
+* Enhance banner and MREC (`MaxAdView`) preloading to support preloading multiple `MaxAdView` instances.
+* Update preloaded banners and MRECs (`MaxAdView`) to suspend auto-refresh while not visible in background.
+* Depends on Android SDK v13.0.1 and iOS SDK v13.0.1.
+## 4.0.2
+* Update IconView to support native ad icon image view, primarily for BigoAds native ads.
 ## 4.0.1
 * Crash if plugin version is incompatible with native SDK version.
 * Add support for Yandex native ads.

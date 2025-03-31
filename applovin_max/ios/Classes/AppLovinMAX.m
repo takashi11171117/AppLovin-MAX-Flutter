@@ -42,9 +42,11 @@
 @property (nonatomic, strong) NSMutableDictionary<NSString *, MAAdView *> *adViews;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, MAAdFormat *> *adViewAdFormats;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *adViewPositions;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *adViewWidths;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSArray<NSLayoutConstraint *> *> *adViewConstraints;
 @property (nonatomic, strong) NSMutableArray<NSString *> *adUnitIdentifiersToShowAfterCreate;
 @property (nonatomic, strong) NSMutableSet<NSString *> *disabledAutoRefreshAdViewAdUnitIdentifiers;
+@property (nonatomic, strong) NSMutableSet<NSString *> *disabledAdaptiveBannerAdUnitIdentifiers;
 @property (nonatomic, strong) UIView *safeAreaBackground;
 @property (nonatomic, strong, nullable) UIColor *publisherBannerBackgroundColor;
 
@@ -53,7 +55,7 @@
 @implementation AppLovinMAX
 static NSString *const SDK_TAG = @"AppLovinSdk";
 static NSString *const TAG = @"AppLovinMAX";
-static NSString *const PLUGIN_VERSION = @"4.0.0";
+static NSString *const PLUGIN_VERSION = @"4.3.1";
 
 static NSString *const USER_GEOGRAPHY_GDPR = @"G";
 static NSString *const USER_GEOGRAPHY_OTHER = @"O";
@@ -74,10 +76,18 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
 + (void)registerWithRegistrar:(NSObject<FlutterPluginRegistrar> *)registrar
 {
     ALCompatibleNativeSDKVersions = @{
+        @"4.3.1" : @"13.0.1",
+        @"4.3.0" : @"13.0.1",
+        @"4.2.1" : @"13.0.1",
+        @"4.2.0" : @"13.0.1",
+        @"4.1.2" : @"13.0.1",
+        @"4.1.1" : @"13.0.1",
+        @"4.1.0" : @"13.0.1",
+        @"4.0.2" : @"13.0.0",
         @"4.0.1" : @"13.0.0",
         @"4.0.0" : @"13.0.0"
     };
-
+    
     ALSharedChannel = [FlutterMethodChannel methodChannelWithName: @"applovin_max" binaryMessenger: [registrar messenger]];
     AppLovinMAX *instance = [[AppLovinMAX alloc] init];
     [registrar addMethodCallDelegate: instance channel: ALSharedChannel];
@@ -110,17 +120,19 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
         self.adViews = [NSMutableDictionary dictionaryWithCapacity: 2];
         self.adViewAdFormats = [NSMutableDictionary dictionaryWithCapacity: 2];
         self.adViewPositions = [NSMutableDictionary dictionaryWithCapacity: 2];
+        self.adViewWidths = [NSMutableDictionary dictionaryWithCapacity: 2];
         self.adViewConstraints = [NSMutableDictionary dictionaryWithCapacity: 2];
         self.adUnitIdentifiersToShowAfterCreate = [NSMutableArray arrayWithCapacity: 2];
         self.disabledAutoRefreshAdViewAdUnitIdentifiers = [NSMutableSet setWithCapacity: 2];
-
+        self.disabledAdaptiveBannerAdUnitIdentifiers = [NSMutableSet setWithCapacity: 2];
+        
         self.safeAreaBackground = [[UIView alloc] init];
         self.safeAreaBackground.hidden = YES;
         self.safeAreaBackground.backgroundColor = UIColor.clearColor;
         self.safeAreaBackground.translatesAutoresizingMaskIntoConstraints = NO;
         self.safeAreaBackground.userInteractionEnabled = NO;
         [ROOT_VIEW_CONTROLLER.view addSubview: self.safeAreaBackground];
-
+        
         // Check that plugin version is compatible with native SDK version
         NSString *minCompatibleNativeSdkVersion = ALCompatibleNativeSDKVersions[PLUGIN_VERSION];
         BOOL isCompatible = [ALUtils isInclusiveVersion: ALSdk.version
@@ -173,7 +185,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     }
     
     ALSdkInitializationConfiguration *initConfig = [ALSdkInitializationConfiguration configurationWithSdkKey: sdkKey builderBlock:^(ALSdkInitializationConfigurationBuilder *builder) {
-
+        
         builder.mediationProvider = ALMediationProviderMAX;
         builder.pluginVersion = [@"Flutter-" stringByAppendingString: pluginVersion];
         builder.segmentCollection = [self.segmentCollectionBuilder build];
@@ -188,11 +200,11 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
             self.testDeviceIdentifiersToSet = nil;
         }
     }];
-
-
+    
+    
     // Initialize SDK
     [self.sdk initializeWithConfiguration:initConfig completionHandler:^(ALSdkConfiguration *configuration) {
-
+        
         [self log: @"SDK initialized"];
         
         self.sdkConfiguration = configuration;
@@ -294,7 +306,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
         [self log: @"[%@] Failed to set extra parameter for nil or empty key: %@", TAG, key];
         return;
     }
-
+    
     [self.sdk.settings setExtraParameterForKey: key value: ( value != (id) [NSNull null] ) ? value : nil];
 }
 
@@ -332,7 +344,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
         [self logUninitializedAccessError: @"showCmpForExistingUser" withResult: result];
         return;
     }
-
+    
     [self.sdk.cmpService showCMPForExistingUserWithCompletion:^(ALCMPError * _Nullable error) {
         
         if ( !error )
@@ -340,7 +352,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
             result(nil);
             return;
         }
-
+        
         result(@{@"code" : @(error.code),
                  @"message" : error.message ?: @"",
                  @"cmpCode" : @(error.cmpCode),
@@ -355,7 +367,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
         [self logUninitializedAccessError: @"hasSupportedCmp" withResult: result];
         return;
     }
-
+    
     result(@([self.sdk.cmpService hasSupportedCMP]));
 }
 
@@ -381,7 +393,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     }
     
     NSArray<MASegment *> *segments = self.sdk.segmentCollection.segments;
-
+    
     if ( ![segments count] )
     {
         result(nil);
@@ -394,7 +406,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     {
         map[segment.key] = segment.values;
     }
-
+    
     result(map);
 }
 
@@ -909,6 +921,20 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     adView.placement = placement;
 }
 
+- (void)setAdViewWidth:(CGFloat)width forAdUnitIdentifier:(NSString *)adUnitIdentifier adFormat:(MAAdFormat *)adFormat
+{
+    [self log: @"Setting width %f for \"%@\" with ad unit identifier \"%@\"", width, adFormat, adUnitIdentifier];
+        
+    CGFloat minWidth = adFormat.size.width;
+    if ( width < minWidth )
+    {
+        [self log: @"The provided with: %f is smaller than the minimum required width: %f for ad format: %@. Please set the width higher than the minimum required.", width, minWidth, adFormat];
+    }
+        
+    self.adViewWidths[adUnitIdentifier] = @(width);
+    [self positionAdViewForAdUnitIdentifier: adUnitIdentifier adFormat: adFormat];
+}
+
 - (void)updateAdViewPosition:(NSString *)adViewPosition forAdUnitIdentifier:(NSString *)adUnitIdentifier adFormat:(MAAdFormat *)adFormat
 {
     // Check if the previous position is same as the new position. If so, no need to update the position again.
@@ -942,6 +968,20 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
         }
         
         self.adViewAdFormats[adUnitIdentifier] = adFormat;
+        [self positionAdViewForAdUnitIdentifier: adUnitIdentifier adFormat: adFormat];
+    }
+    else if ( [@"adaptive_banner" isEqualToString: key] )
+    {
+        BOOL shouldUseAdaptiveBanner = [NSNumber al_numberWithString: value].boolValue;
+        if ( shouldUseAdaptiveBanner )
+        {
+            [self.disabledAdaptiveBannerAdUnitIdentifiers removeObject: adUnitIdentifier];
+        }
+        else
+        {
+            [self.disabledAdaptiveBannerAdUnitIdentifiers addObject: adUnitIdentifier];
+        }
+        
         [self positionAdViewForAdUnitIdentifier: adUnitIdentifier adFormat: adFormat];
     }
 }
@@ -1073,13 +1113,13 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
 - (void)logUninitializedAccessError:(NSString *)callingMethod withResult:(nullable FlutterResult)result
 {
     NSString *message = [NSString stringWithFormat: @"ERROR: Failed to execute %@() - please ensure the AppLovin MAX React Native module has been initialized by calling 'AppLovinMAX.initialize(...);'!", callingMethod];
-
+    
     if ( !result )
     {
         NSLog(@"[%@] [%@] %@", SDK_TAG, TAG, message);
         return;
     }
-
+    
     result([FlutterError errorWithCode: TAG message: message details: nil]);
 }
 
@@ -1194,6 +1234,8 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
 {
     MAAdView *adView = [self retrieveAdViewForAdUnitIdentifier: adUnitIdentifier adFormat: adFormat];
     NSString *adViewPosition = self.adViewPositions[adUnitIdentifier];
+    BOOL isAdaptiveBannerDisabled = [self.disabledAdaptiveBannerAdUnitIdentifiers containsObject: adUnitIdentifier];
+    BOOL isWidthPtsOverridden = self.adViewWidths[adUnitIdentifier] != nil;
     
     UIView *superview = adView.superview;
     if ( !superview ) return;
@@ -1213,7 +1255,42 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     [NSLayoutConstraint deactivateConstraints: self.safeAreaBackground.constraints];
     self.safeAreaBackground.hidden = adView.hidden;
     
-    CGSize adViewSize = [[self class] adViewSizeForAdFormat: adFormat];
+    //
+    // Determine ad width
+    //
+    CGFloat adViewWidth;
+    
+    // Check if publisher has overridden width as points
+    if ( isWidthPtsOverridden )
+    {
+        adViewWidth = self.adViewWidths[adUnitIdentifier].floatValue;
+    }
+    // Top center / bottom center stretches full screen
+    else if ( [adViewPosition isEqual: @"top_center"] || [adViewPosition isEqual: @"bottom_center"] )
+    {
+        adViewWidth = CGRectGetWidth(KEY_WINDOW.bounds);
+    }
+    // Else use standard widths of 320, 728, or 300
+    else
+    {
+        adViewWidth = adFormat.size.width;
+    }
+    
+    //
+    // Determine ad height
+    //
+    CGFloat adViewHeight;
+    
+    if ( (adFormat == MAAdFormat.banner || adFormat == MAAdFormat.leader) && !isAdaptiveBannerDisabled )
+    {
+        adViewHeight = [adFormat adaptiveSizeForWidth: adViewWidth].height;
+    }
+    else
+    {
+        adViewHeight = adFormat.size.height;
+    }
+    
+    CGSize adViewSize = CGSizeMake(adViewWidth, adViewHeight);
     
     // All positions have constant height
     NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithObject: [adView.heightAnchor constraintEqualToConstant: adViewSize.height]];
@@ -1223,6 +1300,21 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     // If top of bottom center, stretch width of screen
     if ( [adViewPosition isEqual: @"top_center"] || [adViewPosition isEqual: @"bottom_center"] )
     {
+        // Non AdMob banners will still be of 50/90 points tall. Set the auto sizing mask such that the inner ad view is pinned to the bottom or top according to the ad view position.
+        if ( !isAdaptiveBannerDisabled )
+        {
+            adView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+            
+            if ( [adViewPosition isEqual: @"top_center"] )
+            {
+                adView.autoresizingMask |= UIViewAutoresizingFlexibleBottomMargin;
+            }
+            else // bottom_center
+            {
+                adView.autoresizingMask |= UIViewAutoresizingFlexibleTopMargin;
+            }
+        }
+        
         // If publisher actually provided a banner background color, span the banner across the realm
         if ( self.publisherBannerBackgroundColor && adFormat != MAAdFormat.mrec )
         {
@@ -1330,13 +1422,18 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
 {
     // NOTE: Empty strings might get co-erced into [NSNull null] through Flutter channel and cause issues
     return @{@"adUnitId" : ad.adUnitIdentifier,
-             @"creativeId" : ad.creativeIdentifier ?: @"",
+             @"adFormat" : ad.format.label,
              @"networkName" : ad.networkName,
+             @"networkPlacement" : ad.networkPlacement,
+             @"creativeId" : ad.creativeIdentifier ?: @"",
              @"placement" : ad.placement ?: @"",
              @"revenue" : @(ad.revenue),
              @"revenuePrecision" : ad.revenuePrecision,
+             @"waterfall": [self createAdWaterfallInfo: ad.waterfall],
+             @"latencyMillis" : @(ad.requestLatency * 1000),
              @"dspName" : ad.DSPName ?: @"",
-             @"waterfall": [self createAdWaterfallInfo: ad.waterfall]};
+             @"width": @(ad.size.width),
+             @"height": @(ad.size.height)};
 }
 
 - (NSDictionary<NSString *, id> *)adLoadFailedInfoForAdUnitIdentifier:(NSString *)adUnitIdentifier withError:(MAError *)error
@@ -1462,7 +1559,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
             [self log: @"Failed to set Amazon result - unable to find interstitial"];
             return;
         }
-
+        
         [interstitial setLocalExtraParameterForKey: key value: result];
     }
     else if ( adFormat == MAAdFormat.rewarded )
@@ -1473,13 +1570,13 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
             [self log: @"Failed to set Amazon result - unable to find rewarded ad"];
             return;
         }
-
+        
         [rewardedAd setLocalExtraParameterForKey: key value: result];
     }
     else // MAAdFormat.banner or MAAdFormat.mrec
     {
         MAAdView *adView = [AppLovinMAXAdView sharedWithAdUnitIdentifier: adUnitIdentifier];
-
+        
         if ( !adView )
         {
             adView = [self retrieveAdViewForAdUnitIdentifier: adUnitIdentifier adFormat: adFormat];
@@ -1514,7 +1611,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     {
         return ALConsentFlowUserGeographyOther;
     }
-
+    
     return ALConsentFlowUserGeographyUnknown;
 }
 
@@ -1528,7 +1625,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     {
         return USER_GEOGRAPHY_OTHER;
     }
-
+    
     return USER_GEOGRAPHY_UNKNOWN;
 }
 
@@ -1550,7 +1647,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     {
         return APP_TRACKING_STATUS_AUTHORIZED;
     }
-
+    
     return APP_TRACKING_STATUS_UNAVAILABLE;
 }
 
@@ -1975,14 +2072,14 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
         id rawCustomData = call.arguments[@"custom_data"];
         id rawExtraParameters = call.arguments[@"extra_parameters"];
         id rawLocalExtraParameters = call.arguments[@"local_extra_parameters"];
-
+        
         NSString *placement = ( rawPlacement != [NSNull null] ) ? rawPlacement : nil;
         NSString *customData = ( rawCustomData != [NSNull null] ) ? rawCustomData : nil;
         NSDictionary<NSString *, id> *extraParameters = ( rawExtraParameters != [NSNull null] ) ? rawExtraParameters : nil;
         NSDictionary<NSString *, id> *localExtraParameters = ( rawLocalExtraParameters != [NSNull null] ) ? rawLocalExtraParameters : nil;
-
+        
         MAAdFormat *adFormat;
-    
+        
         if ( [MAAdFormat.banner.label al_isEqualToStringIgnoringCase: adFormatStr] )
         {
             adFormat = DEVICE_SPECIFIC_ADVIEW_AD_FORMAT;
@@ -1996,7 +2093,7 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
             [self logInvalidAdFormat: adFormat withResult: result];
             return;
         }
-    
+        
         [AppLovinMAXAdView preloadWidgetAdView: adUnitId
                                       adFormat: adFormat
                                      placement: placement
@@ -2007,16 +2104,16 @@ static NSDictionary<NSString *, NSString *> *ALCompatibleNativeSDKVersions;
     }
     else if ( [@"destroyWidgetAdView" isEqualToString: call.method] )
     {
-        NSString *adUnitId = call.arguments[@"ad_unit_id"];
-        [AppLovinMAXAdView destroyWidgetAdView: adUnitId withResult: result];
+        NSNumber *adViewId = call.arguments[@"ad_view_id"];
+        [AppLovinMAXAdView destroyWidgetAdView: adViewId withResult: result];
     }
     else if ( [@"addSegment" isEqualToString: call.method] )
     {
         NSNumber *key = call.arguments[@"key"];
         NSArray<NSNumber *> *values = call.arguments[@"values"];
-
+        
         [self addSegment: key values: values];
-
+        
         result(nil);
     }
     else if ( [@"getSegments" isEqualToString: call.method] )

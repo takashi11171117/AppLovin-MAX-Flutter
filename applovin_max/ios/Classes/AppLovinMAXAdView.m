@@ -13,12 +13,13 @@
 @interface AppLovinMAXAdView()
 @property (nonatomic, strong) FlutterMethodChannel *channel;
 @property (nonatomic, strong, nullable) AppLovinMAXAdViewWidget *widget;
+@property (nonatomic, copy) NSNumber *adViewId;
 @end
 
 @implementation AppLovinMAXAdView
 
-static NSMutableDictionary<NSString *, AppLovinMAXAdViewWidget *> *widgetInstances;
-static NSMutableDictionary<NSString *, AppLovinMAXAdViewWidget *> *preloadedWidgetInstances;
+static NSMutableDictionary<NSNumber *, AppLovinMAXAdViewWidget *> *widgetInstances;
+static NSMutableDictionary<NSNumber *, AppLovinMAXAdViewWidget *> *preloadedWidgetInstances;
 
 + (void)initialize
 {
@@ -27,9 +28,30 @@ static NSMutableDictionary<NSString *, AppLovinMAXAdViewWidget *> *preloadedWidg
     preloadedWidgetInstances = [NSMutableDictionary dictionaryWithCapacity: 2];
 }
 
-+ (MAAdView *)sharedWithAdUnitIdentifier:(NSString *)adUnitIdentifier
+// Returns an MAAdView to support Amazon integrations. This method returns the first instance that
+// matches the Ad Unit ID, consistent with the behavior introduced when this feature was first
+// implemented.
++ (nullable MAAdView *)sharedWithAdUnitIdentifier:(NSString *)adUnitIdentifier
 {
-    return (preloadedWidgetInstances[adUnitIdentifier] ?: widgetInstances[adUnitIdentifier]).adView;
+    for ( id key in preloadedWidgetInstances )
+    {
+        AppLovinMAXAdViewWidget *widget = preloadedWidgetInstances[key];
+        if ( [widget.adUnitIdentifier isEqualToString: adUnitIdentifier] )
+        {
+            return widget.adView;
+        }
+    }
+    
+    for ( id key in widgetInstances )
+    {
+        AppLovinMAXAdViewWidget *widget = widgetInstances[key];
+        if ( [widget.adUnitIdentifier isEqualToString: adUnitIdentifier] )
+        {
+            return widget.adView;
+        }
+    }
+    
+    return nil;
 }
 
 #pragma mark - Preloading
@@ -42,42 +64,35 @@ static NSMutableDictionary<NSString *, AppLovinMAXAdViewWidget *> *preloadedWidg
        localExtraParameters:(nullable NSDictionary<NSString *, id> *)localExtraParameters
                  withResult:(FlutterResult)result
 {
-    AppLovinMAXAdViewWidget *preloadedWidget = preloadedWidgetInstances[adUnitIdentifier];
-    if ( preloadedWidget )
-    {
-        result([FlutterError errorWithCode: @"AppLovinMAX" message: @"Cannot preload more than once for a single Ad Unit ID." details: nil]);
-        return;
-    }
+    AppLovinMAXAdViewWidget *preloadedWidget = [[AppLovinMAXAdViewWidget alloc] initWithAdUnitIdentifier: adUnitIdentifier adFormat: adFormat shouldPreload: YES];
+    preloadedWidgetInstances[@(preloadedWidget.hash)] = preloadedWidget;
     
-    preloadedWidget = [[AppLovinMAXAdViewWidget alloc] initWithAdUnitIdentifier: adUnitIdentifier adFormat: adFormat shouldPreload: YES];
-    preloadedWidgetInstances[adUnitIdentifier] = preloadedWidget;
-    
-    preloadedWidget.placement = placement;
-    preloadedWidget.customData = customData;
-    preloadedWidget.extraParameters = extraParameters;
-    preloadedWidget.localExtraParameters = localExtraParameters;
+    [preloadedWidget setPlacement: placement];
+    [preloadedWidget setCustomData: customData];
+    [preloadedWidget setExtraParameters: extraParameters];
+    [preloadedWidget setLocalExtraParameters: localExtraParameters];
     
     [preloadedWidget loadAd];
     
-    result(nil);
+    result(@(preloadedWidget.hash));
 }
 
-+ (void)destroyWidgetAdView:(NSString *)adUnitIdentifier withResult:(FlutterResult)result
++ (void)destroyWidgetAdView:(NSNumber *)adViewId withResult:(FlutterResult)result
 {
-    AppLovinMAXAdViewWidget *preloadedWidget = preloadedWidgetInstances[adUnitIdentifier];
+    AppLovinMAXAdViewWidget *preloadedWidget = preloadedWidgetInstances[adViewId];
     if ( !preloadedWidget )
     {
-        result([FlutterError errorWithCode: @"AppLovinMAX" message: @"No widget found to destroy" details: nil]);
+        result([FlutterError errorWithCode: @"AppLovinMAX" message: @"No preloaded AdView found to destroy" details: nil]);
         return;
     }
     
     if ( [preloadedWidget hasContainerView] )
     {
-        result([FlutterError errorWithCode: @"AppLovinMAX" message: @"Cannot destroy - currently in use" details: nil]);
+        result([FlutterError errorWithCode: @"AppLovinMAX" message: @"Cannot destroy - the preloaded AdView is currently in use" details: nil]);
         return;
     }
     
-    [preloadedWidgetInstances removeObjectForKey: adUnitIdentifier];
+    [preloadedWidgetInstances removeObjectForKey: adViewId];
     
     [preloadedWidget detachAdView];
     [preloadedWidget destroy];
@@ -91,6 +106,7 @@ static NSMutableDictionary<NSString *, AppLovinMAXAdViewWidget *> *preloadedWidg
                        viewId:(int64_t)viewId
                      adUnitId:(NSString *)adUnitId
                      adFormat:(MAAdFormat *)adFormat
+                     adViewId:(nullable NSNumber *)adViewId
          isAutoRefreshEnabled:(BOOL)isAutoRefreshEnabled
                     placement:(nullable NSString *)placement
                    customData:(nullable NSString *)customData
@@ -124,27 +140,34 @@ static NSMutableDictionary<NSString *, AppLovinMAXAdViewWidget *> *preloadedWidg
             }
         }];
         
-        self.widget = preloadedWidgetInstances[adUnitId];
+        self.widget = preloadedWidgetInstances[adViewId];
         if ( self.widget )
         {
-            // Attach the preloaded widget if possible, otherwise create a new one for the
-            // same adUnitId
+            // Attach the preloaded widget if available, otherwise create a new widget for the same ad unit.
             if ( ![self.widget hasContainerView] )
             {
-                self.widget.autoRefreshEnabled = isAutoRefreshEnabled;
+                [AppLovinMAX log: @"Mounting the preloaded AdView (%@) for Ad Unit ID %@", adViewId, adUnitId];
+                
+                self.widget.adView.frame = frame;
+                self.adViewId = adViewId;
+                [self.widget setAutoRefreshEnabled: isAutoRefreshEnabled];
                 [self.widget attachAdView: self];
                 return self;
             }
         }
         
         self.widget = [[AppLovinMAXAdViewWidget alloc] initWithAdUnitIdentifier: adUnitId adFormat: adFormat];
-        widgetInstances[adUnitId] = self.widget;
+        self.widget.adView.frame = frame;
+        self.adViewId = @(self.widget.hash);
+        widgetInstances[self.adViewId] = self.widget;
         
-        self.widget.placement = placement;
-        self.widget.customData = customData;
-        self.widget.extraParameters = extraParameters;
-        self.widget.localExtraParameters = localExtraParameters;
-        self.widget.autoRefreshEnabled = isAutoRefreshEnabled;
+        [AppLovinMAX log: @"Mounting a new AdView (%@) for Ad Unit ID %@", self.adViewId, adUnitId];
+        
+        [self.widget setPlacement: placement];
+        [self.widget setCustomData: customData];
+        [self.widget setExtraParameters: extraParameters];
+        [self.widget setLocalExtraParameters: localExtraParameters];
+        [self.widget setAutoRefreshEnabled: isAutoRefreshEnabled];
         
         [self.widget attachAdView: self];
         [self.widget loadAd];
@@ -161,11 +184,17 @@ static NSMutableDictionary<NSString *, AppLovinMAXAdViewWidget *> *preloadedWidg
 {
     [self.widget detachAdView];
     
-    AppLovinMAXAdViewWidget *preloadedWidget = preloadedWidgetInstances[self.widget.adView.adUnitIdentifier];
+    AppLovinMAXAdViewWidget *preloadedWidget = preloadedWidgetInstances[self.adViewId];
     
-    if ( self.widget != preloadedWidget )
+    if ( self.widget == preloadedWidget )
     {
-        [widgetInstances removeObjectForKey: self.widget.adView.adUnitIdentifier];
+        [AppLovinMAX log: @"Unmounting the preloaded AdView (%@) for Ad Unit ID %@", self.adViewId, self.widget.adUnitIdentifier];
+        [self.widget setAutoRefreshEnabled: NO];
+    }
+    else
+    {
+        [AppLovinMAX log: @"Unmounting the AdView (%@) to destroy for Ad Unit ID %@", self.adViewId, self.widget.adUnitIdentifier];
+        [widgetInstances removeObjectForKey: self.adViewId];
         [self.widget destroy];
     }
     

@@ -13,7 +13,7 @@ export 'package:applovin_max/src/max_ad_view.dart';
 export 'package:applovin_max/src/max_native_ad_view.dart';
 
 /// The current version of the SDK.
-const String _version = "4.0.1";
+const String _version = "4.3.1";
 
 /// Represents the AppLovin SDK.
 class AppLovinMAX {
@@ -275,15 +275,6 @@ class AppLovinMAX {
     });
   }
 
-  /// Whether or not the AppLovin SDK will collect the device location. Defaults to true.
-  ///
-  /// [Location Passing](https://developers.applovin.com/en/flutter/overview/data-and-keyword-passing#location-passing)
-  static void setLocationCollectionEnabled(bool enabled) {
-    _methodChannel.invokeMethod('setLocationCollectionEnabled', {
-      'value': enabled,
-    });
-  }
-
   /// Sets an extra parameter to pass to the AppLovin server.
   static void setExtraParameter(String key, String? value) {
     _methodChannel.invokeMethod('setExtraParameter', {
@@ -364,6 +355,7 @@ class AppLovinMAX {
       'ad_unit_id': adUnitId,
       'position': position.value,
     });
+    setBannerExtraParameter(adUnitId, "adaptive_banner", "true");
   }
 
   /// Sets a background color for the banner with the specified [adUnitId].
@@ -383,6 +375,13 @@ class AppLovinMAX {
     _methodChannel.invokeMethod('setBannerPlacement', {
       'ad_unit_id': adUnitId,
       'placement': placement,
+    });
+  }
+
+  static void setBannerWidth(String adUnitId, double width) {
+    _methodChannel.invokeMethod('setBannerWidth', {
+      'ad_unit_id': adUnitId,
+      'width': width.round(),
     });
   }
 
@@ -695,26 +694,23 @@ class AppLovinMAX {
     _widgetAdViewAdListener = listener;
   }
 
-  /// Preloads a [MaxAdView] platform widget for the specified [adUnitId] with
-  /// the given [adFormat] before it is mounted in the widget tree.
+  /// Preloads a [MaxAdView] platform widget for the specified [adUnitId] and [adFormat].
   ///
-  /// When you mount a [MaxAdView] with the preloaded [adUnitId], it will be
-  /// constructed using the preloaded [MaxAdView] platform widget, allowing ads
-  /// to be displayed more quickly. After unmounting the [MaxAdView], the
-  /// preloaded [MaxAdView] platform widget will not be destroyed; instead, it
-  /// will be reused for the next mount. You must manually destroy it when it is
-  /// no longer needed.
+  /// Preloading a [MaxAdView] improves ad rendering speed when the widget is later
+  /// mounted in the widget tree. The preloaded platform widget is reused across
+  /// mounts for the same [adViewId] until explicitly destroyed, reducing load times.
   ///
-  /// You can preload only one [MaxAdView] platform widget for a single Ad Unit
-  /// ID. If you mount two [MaxAdView] widgets with the same Ad Unit ID, the
-  /// first [MaxAdView] will use the preloaded platform widget, while the second
-  /// [MaxAdView] will create its own platform widget and destroy it upon
-  /// unmounting.
+  /// - **Behavior**:
+  ///   - When a [MaxAdView] is mounted with the preloaded [adViewId], it uses the
+  ///     preloaded platform widget for faster rendering.
   ///
-  /// Returns a `Future<void>` that completes when the preload operation has
-  /// been successfully started. If the preload operation fails to start, the
-  /// `Future` completes with an error.
-  static Future<void> preloadWidgetAdView(
+  /// - **Important**: Preloaded platform widgets must be destroyed manually using
+  ///   [destroyWidgetAdView] when they are no longer needed to free up resources.
+  ///
+  /// - **Return**:
+  ///   A `Future<AdViewId?>` that completes when the preload operation starts
+  ///   successfully. If the operation fails, the `Future` completes with an error.
+  static Future<AdViewId?> preloadWidgetAdView(
     String adUnitId,
     AdFormat adFormat, {
     String? placement,
@@ -722,24 +718,34 @@ class AppLovinMAX {
     Map<String, String?>? extraParameters,
     Map<String, dynamic>? localExtraParameters,
   }) {
+    Map<String, String?> extraParametersWithAdaptiveBanner = Map<String, String?>.from(extraParameters ?? {});
+
+    if (extraParameters?['adaptive_banner'] == null) {
+      // Set the default value for 'adaptive_banner'
+      extraParametersWithAdaptiveBanner['adaptive_banner'] = 'true';
+    }
+
     return _methodChannel.invokeMethod('preloadWidgetAdView', {
       'ad_unit_id': adUnitId,
       'ad_format': adFormat.value,
       'placement': placement,
       'custom_data': customData,
-      'extra_parameters': extraParameters,
+      'extra_parameters': extraParametersWithAdaptiveBanner,
       'local_extra_parameters': localExtraParameters,
     });
   }
 
-  /// Destroys a [MaxAdView] platform widget for the specified [adUnitId].
+  /// Destroys the preloaded [MaxAdView] platform widget associated with the specified [adViewId].
   ///
-  /// Returns a `Future<void>` that completes the destruction of the [MaxAdView]
-  /// platform widget. If the destruction operation fails, the `Future`
-  /// completes with an error.
-  static Future<void> destroyWidgetAdView(String adUnitId) {
+  /// This method releases resources associated with the preloaded platform widget,
+  /// ensuring that no unnecessary memory or platform-side resources remain allocated.
+  ///
+  /// - **Return**:
+  ///   A `Future<void>` that completes once the destruction operation is successful.
+  ///   If the operation fails, the `Future` completes with an error.
+  static Future<void> destroyWidgetAdView(AdViewId adViewId) {
     return _methodChannel.invokeMethod('destroyWidgetAdView', {
-      'ad_unit_id': adUnitId,
+      'ad_view_id': adViewId,
     });
   }
 

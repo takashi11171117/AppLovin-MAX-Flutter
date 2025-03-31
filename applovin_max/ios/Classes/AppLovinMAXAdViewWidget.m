@@ -24,7 +24,7 @@
     if ( self )
     {
         self.shouldPreload = shouldPreload;
-
+        
         self.adView = [[MAAdView alloc] initWithAdUnitIdentifier: adUnitIdentifier adFormat: adFormat sdk: [AppLovinMAX shared].sdk];
         self.adView.delegate = self;
         self.adView.revenueDelegate = self;
@@ -32,48 +32,57 @@
         // Set this extra parameter to work around a SDK bug that ignores calls to stopAutoRefresh()
         [self.adView setExtraParameterForKey: @"allow_pause_auto_refresh_immediately" value: @"true"];
         
-        // Set a frame size to suppress an error of zero area for MAAdView
+        [self.adView stopAutoRefresh];
+        
+        // Set an initial frame size to avoid zero-area errors.
         self.adView.frame = (CGRect) { CGPointZero, adFormat.size };
+        
+        self.adView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     }
     return self;
 }
 
-- (void)setPlacement:(NSString *)placement
+- (NSString *)adUnitIdentifier
+{
+    return self.adView.adUnitIdentifier;
+}
+
+- (void)setPlacement:(nullable NSString *)placement
 {
     self.adView.placement = placement;
 }
 
-- (void)setCustomData:(NSString *)customData
+- (void)setCustomData:(nullable NSString *)customData
 {
     self.adView.customData = customData;
 }
 
-- (void)setAutoRefresh:(BOOL)autoRefresh
+- (void)setExtraParameters:(nullable NSDictionary<NSString *, id> *)extraParameters
 {
-    if ( autoRefresh )
+    for ( NSString *key in extraParameters )
+    {
+        [self.adView setExtraParameterForKey: key value: [extraParameters al_stringForKey: key]];
+    }
+}
+
+- (void)setLocalExtraParameters:(nullable NSDictionary<NSString *, id> *)localExtraParameters
+{
+    for ( NSString *key in localExtraParameters )
+    {
+        id value = localExtraParameters[key];
+        [self.adView setLocalExtraParameterForKey: key value: (value != [NSNull null] ? value : nil)];
+    }
+}
+
+- (void)setAutoRefreshEnabled:(BOOL)autoRefreshEnabled
+{
+    if ( autoRefreshEnabled )
     {
         [self.adView startAutoRefresh];
     }
     else
     {
         [self.adView stopAutoRefresh];
-    }
-}
-
-- (void)setExtraParameters:(NSDictionary<NSString *, id> *)parameterDict
-{
-    for ( NSString *key in parameterDict )
-    {
-        [self.adView setExtraParameterForKey: key value: [parameterDict al_stringForKey: key]];
-    }
-}
-
-- (void)setLocalExtraParameters:(NSDictionary<NSString *, id> *)parameterDict
-{
-    for ( NSString *key in parameterDict )
-    {
-        id value = parameterDict[key];
-        [self.adView setLocalExtraParameterForKey: key value: (value != [NSNull null] ? value : nil)];
     }
 }
 
@@ -111,7 +120,8 @@
 
 - (void)didLoadAd:(MAAd *)ad
 {
-    NSDictionary *adInfo = [[AppLovinMAX shared] adInfoForAd: ad];
+    NSMutableDictionary *adInfo = [@{@"adViewId": @(self.hash)} mutableCopy];
+    [adInfo addEntriesFromDictionary: [[AppLovinMAX shared] adInfoForAd: ad]];
     
     if ( self.shouldPreload )
     {
@@ -126,7 +136,8 @@
 
 - (void)didFailToLoadAdForAdUnitIdentifier:(NSString *)adUnitIdentifier withError:(MAError *)error
 {
-    NSDictionary *adLoadFailedInfo = [[AppLovinMAX shared] adLoadFailedInfoForAdUnitIdentifier: adUnitIdentifier withError: error];
+    NSMutableDictionary *adLoadFailedInfo = [@{@"adViewId": @(self.hash)} mutableCopy];
+    [adLoadFailedInfo addEntriesFromDictionary: [[AppLovinMAX shared] adLoadFailedInfoForAdUnitIdentifier: adUnitIdentifier withError: error]];
     
     if ( self.shouldPreload )
     {
@@ -143,7 +154,9 @@
 {
     if ( self.containerView )
     {
-        NSDictionary *adInfo = [[AppLovinMAX shared] adInfoForAd: ad];
+        NSMutableDictionary *adInfo = [@{@"adViewId": @(self.hash)} mutableCopy];
+        [adInfo addEntriesFromDictionary: [[AppLovinMAX shared] adInfoForAd: ad]];
+        
         [self.containerView sendEventWithName: @"OnAdViewAdClickedEvent" body: adInfo];
     }
 }
@@ -154,7 +167,9 @@
 {
     if ( self.containerView )
     {
-        NSDictionary *adInfo = [[AppLovinMAX shared] adInfoForAd: ad];
+        NSMutableDictionary *adInfo = [@{@"adViewId": @(self.hash)} mutableCopy];
+        [adInfo addEntriesFromDictionary: [[AppLovinMAX shared] adInfoForAd: ad]];
+        
         [self.containerView sendEventWithName: @"OnAdViewAdExpandedEvent" body: adInfo];
     }
 }
@@ -163,7 +178,9 @@
 {
     if ( self.containerView )
     {
-        NSDictionary *adInfo = [[AppLovinMAX shared] adInfoForAd: ad];
+        NSMutableDictionary *adInfo = [@{@"adViewId": @(self.hash)} mutableCopy];
+        [adInfo addEntriesFromDictionary: [[AppLovinMAX shared] adInfoForAd: ad]];
+        
         [self.containerView sendEventWithName: @"OnAdViewAdCollapsedEvent" body: adInfo];
     }
 }
@@ -174,7 +191,9 @@
 {
     if ( self.containerView )
     {
-        NSDictionary *adInfo = [[AppLovinMAX shared] adInfoForAd: ad];
+        NSMutableDictionary *adInfo = [@{@"adViewId": @(self.hash)} mutableCopy];
+        [adInfo addEntriesFromDictionary: [[AppLovinMAX shared] adInfoForAd: ad]];
+        
         [self.containerView sendEventWithName: @"OnAdViewAdRevenuePaidEvent" body: adInfo];
     }
 }
