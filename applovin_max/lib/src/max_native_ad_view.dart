@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 
 const String _viewType = "applovin_max/nativeadview";
 
-/// An inherited widget for [MaxNativeAdView] to propagate information down the tree.
+/// An inherited widget for [MaxNativeAdView] to propagate information down the widget tree.
 class _NativeAdViewScope extends InheritedWidget {
   const _NativeAdViewScope({
     required _MaxNativeAdViewState nativeAdViewState,
@@ -24,19 +24,65 @@ class _NativeAdViewScope extends InheritedWidget {
   }
 }
 
-/// Controls [MaxNativeAdView].
+/// Controls the behavior of a [MaxNativeAdView].
 class MaxNativeAdViewController extends ChangeNotifier {
-  /// Loads a native ad.
+  /// Requests the native ad view to load a new ad.
   void loadAd() {
     notifyListeners();
   }
 }
 
-/// Represents a native ad.
+/// Displays a native ad with its associated asset views:
+///
+/// - [MaxNativeAdIconView]
+/// - [MaxNativeAdTitleView]
+/// - [MaxNativeAdAdvertiserView]
+/// - [MaxNativeAdStarRatingView]
+/// - [MaxNativeAdBodyView]
+/// - [MaxNativeAdMediaView]
+/// - [MaxNativeAdCallToActionView]
+///
+/// Each asset view must be manually positioned and styled.
+/// Ad content is populated automatically once the ad is loaded.
+/// Use the widget’s controller (`loadAd()`) to reload the ad as needed.
+///
+/// **Note:** The AppLovin SDK must be initialized before using this widget.
+///
+/// ### Example:
+/// For a complete implementation example, see:
+/// https://github.com/AppLovin/AppLovin-MAX-Flutter/blob/master/applovin_max/example/lib/native_ad.dart
 class MaxNativeAdView extends StatefulWidget {
-  /// Creates a native ad view with the native ad components. The user needs to
-  /// lay out a native ad view with the native ad components using the standard
-  /// Flutter widgets.
+  /// The ad unit ID to load ads for.
+  final String adUnitId;
+
+  /// Placement name assigned for granular ad reporting.
+  final String? placement;
+
+  /// Custom data string for granular ad reporting.
+  final String? customData;
+
+  /// Additional key-value parameters for ad customization, passed to the SDK.
+  final Map<String, String?>? extraParameters;
+
+  /// Local extra parameters provided to mediation adapters for further customization.
+  final Map<String, dynamic>? localExtraParameters;
+
+  /// Listener for native ad event callbacks.
+  final NativeAdListener? listener;
+
+  /// The width of the native ad. Defaults to [double.infinity].
+  final double? width;
+
+  /// The height of the native ad. Defaults to [double.infinity].
+  final double? height;
+
+  /// The controller that reloads a native ad.
+  final MaxNativeAdViewController? controller;
+
+  /// The child widget that contains the asset views of the native ad.
+  final Widget child;
+
+  /// Creates a native ad view with the provided asset views.
   const MaxNativeAdView({
     Key? key,
     required this.adUnitId,
@@ -51,36 +97,6 @@ class MaxNativeAdView extends StatefulWidget {
     required this.child,
   }) : super(key: key);
 
-  /// A string value representing the ad unit ID to load ads for.
-  final String adUnitId;
-
-  /// A string value representing the placement name that you assign when you integrate each ad format, for granular reporting in ad events.
-  final String? placement;
-
-  /// A string value representing the customData name that you assign when you integrate each ad format, for granular reporting in ad events.
-  final String? customData;
-
-  /// A list of extra parameter key/value pairs for the ad.
-  final Map<String, String?>? extraParameters;
-
-  /// A list of local extra parameters to pass to the adapter instances.
-  final Map<String, dynamic>? localExtraParameters;
-
-  /// The listener for various native ad callbacks.
-  final NativeAdListener? listener;
-
-  /// If non-null, requires the child to have exactly this width.
-  final double? width;
-
-  /// If non-null, requires the child to have exactly this height.
-  final double? height;
-
-  /// The controller that reloads a native ad.
-  final MaxNativeAdViewController? controller;
-
-  /// The [child] contained by the MaxNativeAdView container.
-  final Widget child;
-
   /// @nodoc
   @override
   State<MaxNativeAdView> createState() => _MaxNativeAdViewState();
@@ -89,13 +105,13 @@ class MaxNativeAdView extends StatefulWidget {
 class _MaxNativeAdViewState extends State<MaxNativeAdView> {
   final GlobalKey _nativeAdViewKey = GlobalKey();
 
-  // Unique [MethodChannel] to this [MaxNativeAdView] instance.
+  // Unique [MethodChannel] for this [MaxNativeAdView] instance.
   MethodChannel? _methodChannel;
 
-  // An instance of [MaxNativeAd]
+  // The native ad instance received from the platform.
   MaxNativeAd? _nativeAd;
 
-  // Keys for native ad components
+  // Keys for native ad asset view components.
   GlobalKey? _titleViewKey;
   GlobalKey? _advertiserViewKey;
   GlobalKey? _bodyViewKey;
@@ -104,6 +120,10 @@ class _MaxNativeAdViewState extends State<MaxNativeAdView> {
   GlobalKey? _optionsViewKey;
   GlobalKey? _starRatingViewKey;
   GlobalKey? _mediaViewKey;
+
+  // Prevents multiple redundant renderAd() calls in the same frame.
+  // This flag ensures that _renderAd() is called at most once per frame.
+  bool _renderScheduled = false;
 
   @override
   void initState() {
@@ -162,6 +182,7 @@ class _MaxNativeAdViewState extends State<MaxNativeAdView> {
     };
   }
 
+  // Handles ad load requests triggered by the [MaxNativeAdViewController].
   void _handleControllerChanged() {
     _methodChannel?.invokeMethod("loadAd");
   }
@@ -171,6 +192,7 @@ class _MaxNativeAdViewState extends State<MaxNativeAdView> {
     _methodChannel?.setMethodCallHandler(_handleNativeMethodCall);
   }
 
+  // Handles incoming method calls from the native platform.
   Future<dynamic> _handleNativeMethodCall(MethodCall call) async {
     try {
       final String method = call.method;
@@ -182,7 +204,6 @@ class _MaxNativeAdViewState extends State<MaxNativeAdView> {
 
       if ("OnNativeAdLoadedEvent" == method) {
         MaxAd maxAd = AppLovinMAX.createMaxAd(arguments);
-        widget.listener?.onAdLoadedCallback(maxAd);
 
         // Add or update all native ad asset views (e.g., title, body, icon) on the platform.
         await _updateAllAssetViews();
@@ -190,10 +211,12 @@ class _MaxNativeAdViewState extends State<MaxNativeAdView> {
         // Register clickable views and initiate the rendering of the native ad on the platform.
         await _renderAd();
 
-        // Update the Flutter asset views with the native ad
+        // Update the Flutter asset views with the native ad.
         setState(() {
           _nativeAd = maxAd.nativeAd;
         });
+
+        widget.listener?.onAdLoadedCallback(maxAd);
       } else if ("OnNativeAdLoadFailedEvent" == method) {
         widget.listener?.onAdLoadFailedCallback(arguments["adUnitId"], AppLovinMAX.createMaxError(arguments));
       } else if ("OnNativeAdClickedEvent" == method) {
@@ -208,6 +231,7 @@ class _MaxNativeAdViewState extends State<MaxNativeAdView> {
     }
   }
 
+  // Updates all native asset views by invoking their corresponding methods on the platform.
   Future _updateAllAssetViews() async {
     return Future.wait([
       _updateAssetView(_mediaViewKey, "addMediaView"),
@@ -251,25 +275,39 @@ class _MaxNativeAdViewState extends State<MaxNativeAdView> {
     return _methodChannel?.invokeMethod(method, params);
   }
 
+  // Schedules a single `renderAd()` call after the current frame completes.
+  void _scheduleRenderAd() {
+    if (_renderScheduled) return;
+
+    _renderScheduled = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _renderAd();
+      _renderScheduled = false;
+    });
+  }
+
+  // Requests the platform to render the loaded native ad.
   Future _renderAd() async {
     return _methodChannel?.invokeMethod("renderAd");
   }
 
-  // Returns the frame (rect) size relative to the parent's position
+  // Returns the position and size of the given view [key] relative to its [parentKey].
   Rect _getViewSize(GlobalKey key, GlobalKey parentKey) {
     RenderBox? renderedObject = key.currentContext?.findRenderObject() as RenderBox?;
     if (renderedObject == null) return Rect.zero;
     Offset globalPosition = renderedObject.localToGlobal(Offset.zero);
-    RenderBox parentRenderedObject = parentKey.currentContext?.findRenderObject() as RenderBox;
-    Offset relativePosition = parentRenderedObject.globalToLocal(globalPosition);
+    final parentBox = parentKey.currentContext?.findRenderObject();
+    if (parentBox is! RenderBox) return Rect.zero;
+    Offset relativePosition = parentBox.globalToLocal(globalPosition);
     return relativePosition & renderedObject.size;
   }
 }
 
 /// Represents the title text of a native ad.
 class MaxNativeAdTitleView extends StatelessWidget {
-  /// Creates [Text] for the title text. The platform native ad loader
-  /// provides a title text.
+  /// Displays the title text of the native ad using a [Text] widget.
+  /// The title text is provided by the native ad loader.
   const MaxNativeAdTitleView({
     super.key,
     this.style,
@@ -298,19 +336,21 @@ class MaxNativeAdTitleView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    _NativeAdViewScope.of(context)._titleViewKey = _NativeAdViewScope.of(context)._titleViewKey ?? GlobalKey();
+    final scope = _NativeAdViewScope.of(context);
+    scope._titleViewKey ??= GlobalKey();
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (SizeChangedLayoutNotification notification) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _NativeAdViewScope.of(context)._updateAssetView(_NativeAdViewScope.of(context)._titleViewKey, "addTitleView");
-          _NativeAdViewScope.of(context)._renderAd();
+          if (scope._titleViewKey == null) return;
+          scope._updateAssetView(scope._titleViewKey, "addTitleView");
+          scope._scheduleRenderAd();
         });
         return false;
       },
       child: SizeChangedLayoutNotifier(
         child: Text(
-          _NativeAdViewScope.of(context)._nativeAd?.title ?? '',
-          key: _NativeAdViewScope.of(context)._titleViewKey,
+          scope._nativeAd?.title ?? '',
+          key: scope._titleViewKey,
           style: style,
           textAlign: textAlign,
           softWrap: softWrap,
@@ -324,8 +364,8 @@ class MaxNativeAdTitleView extends StatelessWidget {
 
 /// Represents the advertiser text of a native ad.
 class MaxNativeAdAdvertiserView extends StatelessWidget {
-  /// Creates [Text] for the advertiser text. The platform native ad loader
-  /// provides an advertiser text.
+  /// Displays the advertiser text of the native ad using a [Text] widget.
+  /// The advertiser text is provided by the native ad loader.
   const MaxNativeAdAdvertiserView({
     super.key,
     this.style,
@@ -354,19 +394,21 @@ class MaxNativeAdAdvertiserView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    _NativeAdViewScope.of(context)._advertiserViewKey = _NativeAdViewScope.of(context)._advertiserViewKey ?? GlobalKey();
+    final scope = _NativeAdViewScope.of(context);
+    scope._advertiserViewKey ??= GlobalKey();
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (SizeChangedLayoutNotification notification) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _NativeAdViewScope.of(context)._updateAssetView(_NativeAdViewScope.of(context)._advertiserViewKey, "addAdvertiserView");
-          _NativeAdViewScope.of(context)._renderAd();
+          if (scope._advertiserViewKey == null) return;
+          scope._updateAssetView(scope._advertiserViewKey, "addAdvertiserView");
+          scope._scheduleRenderAd();
         });
         return false;
       },
       child: SizeChangedLayoutNotifier(
         child: Text(
-          _NativeAdViewScope.of(context)._nativeAd?.advertiser ?? '',
-          key: _NativeAdViewScope.of(context)._advertiserViewKey,
+          scope._nativeAd?.advertiser ?? '',
+          key: scope._advertiserViewKey,
           style: style,
           textAlign: textAlign,
           softWrap: softWrap,
@@ -380,8 +422,8 @@ class MaxNativeAdAdvertiserView extends StatelessWidget {
 
 /// Represents the body text of a native ad.
 class MaxNativeAdBodyView extends StatelessWidget {
-  /// Creates [Text] for the body text. The platform native ad loader provides
-  /// a body text.
+  /// Displays the body text of the native ad using a [Text] widget.
+  /// The body text is provided by the native ad loader.
   const MaxNativeAdBodyView({
     super.key,
     this.style,
@@ -410,19 +452,21 @@ class MaxNativeAdBodyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    _NativeAdViewScope.of(context)._bodyViewKey = _NativeAdViewScope.of(context)._bodyViewKey ?? GlobalKey();
+    final scope = _NativeAdViewScope.of(context);
+    scope._bodyViewKey ??= GlobalKey();
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (SizeChangedLayoutNotification notification) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _NativeAdViewScope.of(context)._updateAssetView(_NativeAdViewScope.of(context)._bodyViewKey, "addBodyView");
-          _NativeAdViewScope.of(context)._renderAd();
+          if (scope._bodyViewKey == null) return;
+          scope._updateAssetView(scope._bodyViewKey, "addBodyView");
+          scope._scheduleRenderAd();
         });
         return false;
       },
       child: SizeChangedLayoutNotifier(
         child: Text(
-          _NativeAdViewScope.of(context)._nativeAd?.body ?? '',
-          key: _NativeAdViewScope.of(context)._bodyViewKey,
+          scope._nativeAd?.body ?? '',
+          key: scope._bodyViewKey,
           style: style,
           textAlign: textAlign,
           softWrap: softWrap,
@@ -436,8 +480,8 @@ class MaxNativeAdBodyView extends StatelessWidget {
 
 /// Represents the CTA button text of a native ad.
 class MaxNativeAdCallToActionView extends StatelessWidget {
-  /// Creates [ElevatedButton] for the CTA button text. The platform native ad
-  /// loader provides a CTA button text.
+  /// Displays the call-to-action (CTA) text as an [ElevatedButton].
+  /// The CTA text is provided by the native ad loader.
   const MaxNativeAdCallToActionView({
     super.key,
     this.style,
@@ -450,22 +494,24 @@ class MaxNativeAdCallToActionView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    _NativeAdViewScope.of(context)._callToActionViewKey = _NativeAdViewScope.of(context)._callToActionViewKey ?? GlobalKey();
+    final scope = _NativeAdViewScope.of(context);
+    scope._callToActionViewKey ??= GlobalKey();
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (SizeChangedLayoutNotification notification) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _NativeAdViewScope.of(context)._updateAssetView(_NativeAdViewScope.of(context)._callToActionViewKey, "addCallToActionView");
-          _NativeAdViewScope.of(context)._renderAd();
+          if (scope._callToActionViewKey == null) return;
+          scope._updateAssetView(scope._callToActionViewKey, "addCallToActionView");
+          scope._scheduleRenderAd();
         });
         return false;
       },
       child: SizeChangedLayoutNotifier(
         child: ElevatedButton(
-          key: _NativeAdViewScope.of(context)._callToActionViewKey,
+          key: scope._callToActionViewKey,
           style: style,
           onPressed: () {},
-          child: textWidget != null ? textWidget : Text(
-            _NativeAdViewScope.of(context)._nativeAd?.callToAction?.toUpperCase() ?? '',
+          child: textWidget ?? Text(
+            scope._nativeAd?.callToAction?.toUpperCase() ?? '',
           ),
         ),
       ),
@@ -475,34 +521,36 @@ class MaxNativeAdCallToActionView extends StatelessWidget {
 
 /// Represents the icon image view of a native ad.
 class MaxNativeAdIconView extends StatelessWidget {
-  /// Creates [Container] for the icon view. The platform native ad loader
-  /// overlays the container with the platform view that contains an icon image.
+  /// Displays a transparent [Container] as a placeholder for the icon view.
+  /// The platform overlays it with the native icon content.
   const MaxNativeAdIconView({
     super.key,
     this.width = double.infinity,
     this.height = double.infinity,
   });
 
-  /// If non-null, requires the child to have exactly this width.
+  /// If non-null, the widget will have exactly this width.
   final double? width;
 
-  /// If non-null, requires the child to have exactly this height.
+  /// If non-null, the widget will have exactly this height.
   final double? height;
 
   @override
   Widget build(BuildContext context) {
-    _NativeAdViewScope.of(context)._iconViewKey = _NativeAdViewScope.of(context)._iconViewKey ?? GlobalKey();
+    final scope = _NativeAdViewScope.of(context);
+    scope._iconViewKey ??= GlobalKey();
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (SizeChangedLayoutNotification notification) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _NativeAdViewScope.of(context)._updateAssetView(_NativeAdViewScope.of(context)._iconViewKey, "addIconView");
-          _NativeAdViewScope.of(context)._renderAd();
+          if (scope._iconViewKey == null) return;
+          scope._updateAssetView(scope._iconViewKey, "addIconView");
+          scope._scheduleRenderAd();
         });
         return false;
       },
       child: SizeChangedLayoutNotifier(
         child: Container(
-          key: _NativeAdViewScope.of(context)._iconViewKey,
+          key: scope._iconViewKey,
           width: width,
           height: height,
           color: Colors.transparent,
@@ -514,35 +562,36 @@ class MaxNativeAdIconView extends StatelessWidget {
 
 /// Represents the options view of a native ad.
 class MaxNativeAdOptionsView extends StatelessWidget {
-  /// Creates [Container] for the options view. The platform native ad loader
-  /// overlays the container with the platform view that contains an options
-  /// view.
+  /// Displays a transparent [Container] as a placeholder for the options view.
+  /// The platform overlays it with the native options view.
   const MaxNativeAdOptionsView({
     super.key,
     this.width = double.infinity,
     this.height = double.infinity,
   });
 
-  /// If non-null, requires the child to have exactly this width.
+  /// If non-null, the widget will have exactly this width.
   final double? width;
 
-  /// If non-null, requires the child to have exactly this height.
+  /// If non-null, the widget will have exactly this height.
   final double? height;
 
   @override
   Widget build(BuildContext context) {
-    _NativeAdViewScope.of(context)._optionsViewKey = _NativeAdViewScope.of(context)._optionsViewKey ?? GlobalKey();
+    final scope = _NativeAdViewScope.of(context);
+    scope._optionsViewKey ??= GlobalKey();
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (SizeChangedLayoutNotification notification) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _NativeAdViewScope.of(context)._updateAssetView(_NativeAdViewScope.of(context)._optionsViewKey, "addOptionsView");
-          _NativeAdViewScope.of(context)._renderAd();
+          if (scope._optionsViewKey == null) return;
+          scope._updateAssetView(scope._optionsViewKey, "addOptionsView");
+          scope._scheduleRenderAd();
         });
         return false;
       },
       child: SizeChangedLayoutNotifier(
         child: Container(
-          key: _NativeAdViewScope.of(context)._optionsViewKey,
+          key: scope._optionsViewKey,
           width: width,
           height: height,
           color: Colors.transparent,
@@ -554,8 +603,8 @@ class MaxNativeAdOptionsView extends StatelessWidget {
 
 /// Represents the ad media view of a native ad.
 class MaxNativeAdMediaView extends StatelessWidget {
-  /// Creates [Container] for the media view. The platform native ad loader
-  /// overlays the container with the platform view that contains a media view.
+  /// Displays a transparent [Container] as a placeholder for the media view.
+  /// The platform overlays it with the native media view.
   /// The aspect ratio for the media view needs to be adjusted with
   /// [mediaContentAspectRatio] of [MaxNativeAd].
   const MaxNativeAdMediaView({
@@ -564,26 +613,28 @@ class MaxNativeAdMediaView extends StatelessWidget {
     this.height = double.infinity,
   });
 
-  /// If non-null, requires the child to have exactly this width.
+  /// If non-null, the widget will have exactly this width.
   final double? width;
 
-  /// If non-null, requires the child to have exactly this height.
+  /// If non-null, the widget will have exactly this height.
   final double? height;
 
   @override
   Widget build(BuildContext context) {
-    _NativeAdViewScope.of(context)._mediaViewKey = _NativeAdViewScope.of(context)._mediaViewKey ?? GlobalKey();
+    final scope = _NativeAdViewScope.of(context);
+    scope._mediaViewKey ??= GlobalKey();
     return NotificationListener<SizeChangedLayoutNotification>(
       onNotification: (SizeChangedLayoutNotification notification) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _NativeAdViewScope.of(context)._updateAssetView(_NativeAdViewScope.of(context)._mediaViewKey, "addMediaView");
-          _NativeAdViewScope.of(context)._renderAd();
+          if (scope._mediaViewKey == null) return;
+          scope._updateAssetView(scope._mediaViewKey, "addMediaView");
+          scope._scheduleRenderAd();
         });
         return false;
       },
       child: SizeChangedLayoutNotifier(
         child: Container(
-          key: _NativeAdViewScope.of(context)._mediaViewKey,
+          key: scope._mediaViewKey,
           width: width,
           height: height,
           color: Colors.transparent,
@@ -597,15 +648,18 @@ class _StarRating extends StatelessWidget {
   const _StarRating({
     this.rating,
     this.color,
+    this.shadowColor,
     this.size,
   });
 
   static const int kStarCount = 5;
-  static const Color kStartColor = Color(0xffffe234);
+  static const Color kStarColor = Color(0xffffe234);
+  static const Color kShadowColor = Color(0xffdedede);
   static const double kStarSize = 8.0;
 
   final double? rating;
   final Color? color;
+  final Color? shadowColor;
   final double? size;
 
   Widget buildStar(BuildContext context, int index) {
@@ -614,19 +668,19 @@ class _StarRating extends StatelessWidget {
     if (index >= theRating) {
       icon = Icon(
         Icons.star_border,
-        color: color ?? kStartColor,
+        color: shadowColor ?? kShadowColor,
         size: size ?? kStarSize,
       );
     } else if (index > theRating - 1 && index < theRating) {
       icon = Icon(
         Icons.star_half,
-        color: color ?? kStartColor,
+        color: color ?? kStarColor,
         size: size ?? kStarSize,
       );
     } else {
       icon = Icon(
         Icons.star,
-        color: color ?? kStartColor,
+        color: color ?? kStarColor,
         size: size ?? kStarSize,
       );
     }
@@ -650,25 +704,30 @@ class MaxNativeAdStarRatingView extends StatelessWidget {
     this.height,
     this.size,
     this.color,
+    this.shadowColor,
   });
 
-  /// If non-null, requires the child to have exactly this width.
+  /// If non-null, the widget will have exactly this width.
   final double? width;
 
-  /// If non-null, requires the child to have exactly this height.
+  /// If non-null, the widget will have exactly this height.
   final double? height;
 
   /// The color of each star. The default value is 0xffffe234.
   final Color? color;
+
+  /// The shadow color of each star. The default value is 0xffdedede.
+  final Color? shadowColor;
 
   /// The size of each star. The default value is 8.0.
   final double? size;
 
   @override
   Widget build(BuildContext context) {
-    _NativeAdViewScope.of(context)._starRatingViewKey = _NativeAdViewScope.of(context)._starRatingViewKey ?? GlobalKey();
+    final scope = _NativeAdViewScope.of(context);
+    scope._starRatingViewKey ??= GlobalKey();
     return Container(
-        key: _NativeAdViewScope.of(context)._starRatingViewKey,
+        key: scope._starRatingViewKey,
         // minimum size
         constraints: BoxConstraints(
           minHeight: size ?? _StarRating.kStarSize,
@@ -676,11 +735,12 @@ class MaxNativeAdStarRatingView extends StatelessWidget {
         ),
         width: width,
         height: height,
-        child: (_NativeAdViewScope.of(context)._nativeAd?.starRating != null)
+        child: (scope._nativeAd?.starRating != null)
             ? _StarRating(
                 size: size,
                 color: color,
-                rating: _NativeAdViewScope.of(context)._nativeAd?.starRating!,
+                shadowColor: shadowColor,
+                rating: scope._nativeAd?.starRating ?? 0,
               )
             : null);
   }

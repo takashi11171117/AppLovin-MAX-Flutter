@@ -12,62 +12,90 @@ const double _mrecHeight = 250;
 
 const String _viewType = "applovin_max/adview";
 
-/// Represents an AdView ad (Banner / MREC).
+/// Displays a native AdView for a banner or MREC ad using a platform view as its container.
+///
+/// This widget can be used to display:
+/// - **Banners**: 320×50 on phones, 728×90 on tablets.
+/// - **MRECs**: Fixed size of 300×250 on all devices.
+///
+/// All ad formats are rendered through a native AdView behind the scenes,
+/// ensuring consistent behavior across platforms.
+///
+/// For adaptive banner sizing, use [AppLovinMAX.getAdaptiveHeightForWidth()] to determine the appropriate height.
+///
+/// **Preloading**:
+/// If you preload an ad using [AppLovinMAX.preloadWidgetAdView()],
+/// pass the returned [AdViewId] to this widget to display the preloaded instance.
+///
+/// ### Example:
+/// ```dart
+/// MaxAdView(
+///   adUnitId: 'your_ad_unit_id',
+///   adFormat: AdFormat.banner,
+///   listener: AdViewAdListener(
+///     onAdLoadedCallback: (ad) {},
+///     onAdLoadFailedCallback: (adUnitId, error) {},
+///     onAdClickedCallback: (ad) {},
+///     onAdExpandedCallback: (ad) {},
+///     onAdCollapsedCallback: (ad) {},
+///     onAdRevenuePaidCallback: (ad) {},
+///   ),
+/// );
+/// ```
+///
+/// For a complete implementation example, see:
+/// https://github.com/AppLovin/AppLovin-MAX-Flutter/blob/master/applovin_max/example/lib/main.dart
+///
+/// **Note:** The AppLovin SDK must be initialized before using this widget.
 class MaxAdView extends StatefulWidget {
-  /// A string value representing the ad unit ID to load ads for.
+  /// The ad unit ID to load ads for.
   final String adUnitId;
 
-  /// A string value representing the ad format to load ads for. Should be
-  /// either [AdFormat.banner] or [AdFormat.mrec].
+  /// The ad format to load. Must be either [AdFormat.banner] or [AdFormat.mrec].
   final AdFormat adFormat;
 
-  /// A unique identifier representing the platform widget AdView instance.
-  /// Used to manage and track the specific platform widget AdView.
+  /// Unique identifier used to reference the platform AdView instance.
   final AdViewId? adViewId;
 
-  /// A string value representing the placement name that you assign when you
-  /// integrate each ad format, for granular reporting in ad events.
+  /// Placement name assigned for granular ad reporting.
   final String? placement;
 
-  /// A string value representing the customData name that you assign when you
-  /// integrate each ad format, for granular reporting in ad events.
+  /// Custom data string for granular ad reporting.
   final String? customData;
 
-  /// A list of extra parameter key/value pairs for the ad.
+  /// Additional key-value parameters for ad customization, passed to the SDK.
   final Map<String, String?>? extraParameters;
 
-  /// A list of local extra parameters to pass to the adapter instances.
+  /// Local extra parameters provided to mediation adapters for further customization.
   final Map<String, dynamic>? localExtraParameters;
 
-  /// The listener for various ad callbacks.
+  /// Listener for ad event callbacks.
   final AdViewAdListener? listener;
 
-  /// A boolean value representing whether the ad currently has auto-refresh
-  /// enabled or not. Defaults to true.
+  /// Whether auto-refresh is enabled. Defaults to `true`.
   final bool isAutoRefreshEnabled;
 
-  /// If null, the widget will compute an appropriate width based on the ad format
-  /// and the available constraints from the parent widget.
+  /// Whether adaptive banner sizing is enabled. Defaults to `true`.
+  final bool isAdaptiveBannerEnabled;
+
+  /// The ad width. If `null`, a default is computed based on [adFormat] and layout constraints.
   ///
-  /// - For [AdFormat.banner]: Defaults to 320 for phones or 728 for tablets
-  /// - For [AdFormat.mrec]: Defaults to 300.
+  /// - [AdFormat.banner]: 320 (phones) or 728 (tablets)
+  /// - [AdFormat.mrec]: 300
   ///
-  /// If [adaptive_banner] is enabled, the width will match the screen width.
+  /// If [adaptive_banner] is enabled, the width matches the screen width.
   final double? width;
 
-  /// If null, the widget will compute an appropriate height based on the ad format
-  /// and the available constraints from the parent widget.
+  /// The ad height. If `null`, a default is computed based on [adFormat] and layout constraints.
   ///
-  /// - For [AdFormat.banner]: Defaults to 50 for phones or 90 for tablets
-  /// - For [AdFormat.mrec]: Defaults to 250.
+  /// - [AdFormat.banner]: 50 (phones) or 90 (tablets)
+  /// - [AdFormat.mrec]: 250
   ///
-  /// If [adaptive_banner] is enabled, the height will be calculated dynamically
-  /// using [AppLovinMAX.getAdaptiveBannerHeightForWidth(width)].
+  /// If [adaptive_banner] is enabled, the height is calculated using
+  /// [AppLovinMAX.getAdaptiveBannerHeightForWidth].
   final double? height;
 
-  /// Creates a new ad view directly in the user's widget tree.
-  ///
-  /// * [Widget Method](https://developers.applovin.com/en/flutter/ad-formats/banner-mrec-ads#widget-method)
+  /// Creates an AdView ad that embeds directly into the widget tree.
   const MaxAdView({
     Key? key,
     required this.adUnitId,
@@ -79,6 +107,7 @@ class MaxAdView extends StatefulWidget {
     this.localExtraParameters,
     this.listener,
     this.isAutoRefreshEnabled = true,
+    this.isAdaptiveBannerEnabled = true,
     this.width,
     this.height,
   }) : super(key: key);
@@ -92,23 +121,8 @@ class _MaxAdViewState extends State<MaxAdView> {
   /// Unique [MethodChannel] to this [MaxAdView] instance.
   MethodChannel? _methodChannel;
 
+  late Size _screenSize;
   late bool _isTablet;
-  late bool _adaptiveBannerEnabled;
-  late Map<String, String?> extraParameters;
-
-  @override
-  void initState() {
-    super.initState();
-
-    extraParameters = Map<String, String?>.from(widget.extraParameters ?? {});
-    if (extraParameters['adaptive_banner'] == null) {
-      // Set the default value for 'adaptive_banner'
-      extraParameters['adaptive_banner'] = 'true';
-      _adaptiveBannerEnabled = true;
-    } else {
-      _adaptiveBannerEnabled = extraParameters['adaptive_banner'] == 'true';
-    }
-  }
 
   @override
   void didUpdateWidget(MaxAdView oldWidget) {
@@ -126,39 +140,49 @@ class _MaxAdViewState extends State<MaxAdView> {
   @override
   Widget build(BuildContext context) {
     // https://stackoverflow.com/questions/49484549/can-we-check-the-device-to-be-a-smartphone-or-a-tablet-in-flutter
-    _isTablet = MediaQuery.of(context).size.shortestSide >= 600;
+    _screenSize = MediaQuery.of(context).size;
+    _isTablet = _screenSize.shortestSide >= 600;
 
     return FutureBuilder(
         future: _getAdViewSize(widget.width, widget.height),
         builder: (BuildContext context, AsyncSnapshot<Size> snapshot) {
           if (snapshot.hasData) {
-            return buildAdView(context, snapshot.data!.width, snapshot.data!.height);
+            return _buildAdView(context, snapshot.data!.width, snapshot.data!.height);
           }
-          return Container(); // Return an empty container while waiting for the size.
+          return const SizedBox.shrink(); // Return an empty container while waiting for the size.
         });
   }
 
-  Widget buildAdView(BuildContext context, double width, double height) {
+  Widget _buildAdView(BuildContext context, double width, double height) {
     return SizedBox(
       width: width,
       height: height,
       child: OverflowBox(
         alignment: Alignment.bottomCenter,
-        child: defaultTargetPlatform == TargetPlatform.android
-            ? AndroidView(
-                viewType: _viewType,
-                creationParams: _createParams(),
-                creationParamsCodec: const StandardMessageCodec(),
-                onPlatformViewCreated: _onMaxAdViewCreated,
-              )
-            : UiKitView(
-                viewType: _viewType,
-                creationParams: _createParams(),
-                creationParamsCodec: const StandardMessageCodec(),
-                onPlatformViewCreated: _onMaxAdViewCreated,
-              ),
+        child: _buildPlatformView(),
       ),
     );
+  }
+
+  Widget _buildPlatformView() {
+    final params = _createParams();
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidView(
+        viewType: _viewType,
+        creationParams: params,
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: _onMaxAdViewCreated,
+      );
+    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return UiKitView(
+        viewType: _viewType,
+        creationParams: params,
+        creationParamsCodec: const StandardMessageCodec(),
+        onPlatformViewCreated: _onMaxAdViewCreated,
+      );
+    } else {
+      return const SizedBox.shrink();
+    }
   }
 
   /// Constructs the parameters to be sent to the platform-specific ad view.
@@ -168,9 +192,10 @@ class _MaxAdViewState extends State<MaxAdView> {
       "ad_format": widget.adFormat.value,
       "ad_view_id": widget.adViewId,
       "is_auto_refresh_enabled": widget.isAutoRefreshEnabled,
+      "is_adaptive_banner_enabled": widget.isAdaptiveBannerEnabled,
       "custom_data": widget.customData,
       "placement": widget.placement,
-      "extra_parameters": extraParameters,
+      "extra_parameters": widget.extraParameters,
       "local_extra_parameters": widget.localExtraParameters,
     };
   }
@@ -222,8 +247,8 @@ class _MaxAdViewState extends State<MaxAdView> {
       return _mrecWidth;
     } else if (widget.adFormat == AdFormat.banner) {
       // Return the screen size when adaptive banner is enabled.
-      if (_adaptiveBannerEnabled) {
-        return MediaQuery.of(context).size.width;
+      if (widget.isAdaptiveBannerEnabled) {
+        return _screenSize.width;
       }
       return _isTablet ? _leaderWidth : _bannerWidth;
     } else {
@@ -235,7 +260,7 @@ class _MaxAdViewState extends State<MaxAdView> {
     if (widget.adFormat == AdFormat.mrec) {
       return _mrecHeight;
     } else if (widget.adFormat == AdFormat.banner) {
-      if (_adaptiveBannerEnabled) {
+      if (widget.isAdaptiveBannerEnabled) {
         return await AppLovinMAX.getAdaptiveBannerHeightForWidth(width) ?? (_isTablet ? _leaderHeight : _bannerHeight);
       }
       return _isTablet ? _leaderHeight : _bannerHeight;
